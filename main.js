@@ -3,9 +3,12 @@ const ctx = renderer.getContext('2d');
 
 const position = {x: 0, y: 0};
 const mouse = {x: 0, y: 0};
-let scale = 40;
+let scale = 60;
 
 const maxTriggers = 10;
+
+const renderStatus = document.getElementById('status-render');
+const loopStatus = document.getElementById('status-loop');
 
 const types = [
 	"AND",
@@ -43,7 +46,8 @@ class Object {
 	compute() {
 		this.triggers++;
 		if (this.triggers > maxTriggers) {
-			console.log('Loop!');
+			loopStatus.style.color = '#00f';
+			setTimeout(() => {loopStatus.style.color = '#fff'}, 1);
 			return;
 		}
 		const output = this.output();
@@ -59,7 +63,7 @@ class Object {
 				});
 			}
 			components.forEach(component => {
-				if (component != this && component.getPoints().some(point => 
+				if (component != this && component.type != 'BUTTON' && component.getPoints().some(point => 
 					Math.round(point.x / (scale / 2)) == Math.round(output.x / (scale / 2)) && 
 					Math.round(point.y / (scale / 2)) == Math.round(output.y / (scale / 2)))) {
 					component.compute();
@@ -73,37 +77,48 @@ class Component extends Object {
 		super(x, y);
 		this.type = type;
 		this.sprite = new Image();
-		this.sprite.src = `images/${this.type}.png`;
+		this.sprite.src = `images/${this.type}.svg`;
+		if (type == 'LED') {
+			this.spriteOn = new Image();
+			this.spriteOn.src = `images/${this.type}_ON.svg`;
+		}
 	}
 	draw() {
-		ctx.drawImage(this.sprite, this.x, this.y, scale, scale);
+		if (this.type == 'LED') {
+			if (isPowered(this.x + scale / 2, this.y + scale)) {
+				ctx.drawImage(this.spriteOn, this.x, this.y, scale, scale);
+			} else {
+				ctx.drawImage(this.sprite, this.x, this.y, scale, scale);
+			}
+		} else {
+			ctx.drawImage(this.sprite, this.x, this.y, scale, scale);
+		}
    }
 	getPoints() {
 		if (this.type == 'LED') {
 			return [
-				{x: this.x, y: this.y + scale},
-				{x: this.x + scale, y: this.y + scale}
+				{x: this.x + scale / 2, y: this.y + scale, type: 'in'},
 			];
 		} else if (this.type == 'BUTTON') {
 			return [
-				{x: this.x + scale, y: this.y + scale / 2}
+				{x: this.x + scale, y: this.y + scale / 2, type: 'out'}
 			];
 		} else if (this.type == 'NOT') {
 			return [
-				{x: this.x, y: this.y + scale / 2},
-				{x: this.x + scale, y: this.y + scale / 2}
+				{x: this.x, y: this.y + scale / 2, type: 'in'},
+				{x: this.x + scale, y: this.y + scale / 2, type: 'out'}
 			];
 		} else {
 			return [
-				{x: this.x, y: this.y},
-				{x: this.x, y: this.y + scale},
-				{x: this.x + scale, y: this.y + scale / 2}
+				{x: this.x, y: this.y, type: 'in'},
+				{x: this.x, y: this.y + scale, type: 'in'},
+				{x: this.x + scale, y: this.y + scale / 2, type: 'out'}
 			];
 		}
 	}
 	drawPoints() {
 		this.getPoints().forEach(point => {
-			drawPoint(point.x, point.y);
+			drawPoint(point.x, point.y, point.type);
 		});
 	}
 	drawHighlight() {
@@ -170,13 +185,6 @@ class Component extends Object {
 				}
 				return {x: this.x + scale, y: this.y + scale / 2, powered: false};
 				break;
-			
-			case "LED":
-				if (isPowered(this.x, this.y + scale)) {
-					return {x: this.x + scale, y: this.y + scale, powered: true};
-				}
-				return {x: this.x + scale, y: this.y + scale, powered: false};
-				break;
 		
 			default:
 				break;
@@ -202,13 +210,13 @@ class Wire extends Object{
 	}
 	getPoints() {
 		return [
-			{x: this.x, y: this.y},
-			{x: this.x2, y: this.y2}
+			{x: this.x, y: this.y, type: 'in'},
+			{x: this.x2, y: this.y2, type: 'out'}
 		];
 	}
 	drawPoints() {
 		this.getPoints().forEach(point => {
-			drawPoint(point.x, point.y);
+			drawPoint(point.x, point.y, point.type);
 		});
    }
 	drawHighlight() {
@@ -220,7 +228,8 @@ class Wire extends Object{
 		ctx.stroke();
 	}
 	hovered() {
-		return mouse.x >= this.x && mouse.x <= this.x2 && mouse.y >= this.y && mouse.y <= this.y2;
+		return (mouse.x >= this.x && mouse.x <= this.x2 && mouse.y >= this.y && mouse.y <= this.y2) ||
+			(mouse.x >= this.x2 && mouse.x <= this.x && mouse.y >= this.y2 && mouse.y <= this.y);
 	}
 	length() {
 		return Math.max(Math.abs(this.x - this.x2), Math.abs(this.y - this.y2));
@@ -241,12 +250,24 @@ class Wire extends Object{
 	}
 }
 
-function drawPoint(x, y) {
+function drawPoint(x, y, type) {
 	ctx.fillStyle = '#555';
 	if (isPowered(x, y)) {
 		ctx.fillStyle = '#f00';
 	}
-	ctx.fillRect(x - 4, y - 4, 8, 8);
+	ctx.beginPath();
+	if (type == 'out') {
+		ctx.moveTo(x - 4, y - 4);
+		ctx.lineTo(x, y);
+		ctx.lineTo(x - 4, y + 4);
+	} else if (type == 'in') {
+		ctx.moveTo(x - 4, y - 4);
+		ctx.lineTo(x, y);
+		ctx.lineTo(x - 4, y + 4);
+		ctx.lineTo(x + 4, y + 4);
+		ctx.lineTo(x + 4, y - 4);
+	}
+	ctx.fill();
 }
 function createComponent(type) {
 	const component = new Component(
@@ -265,7 +286,7 @@ function init() {
 		const button = document.createElement('button');
 		button.draggable = true
 		const img = document.createElement('img');
-		img.src = `images/${type}.png`;
+		img.src = `images/${type}.svg`;
 		img.alt = `${type}`;
 		img.draggable = false;
 		button.appendChild(img);
@@ -340,6 +361,8 @@ function resetAll() {
 }
 
 function render() {
+	renderStatus.style.color = '#f00';
+	setTimeout(() => {renderStatus.style.color = '#fff'}, 1);
 	computePower();
 
 	const {width, height} = renderer;
@@ -353,9 +376,9 @@ function computePower() {
 	components.forEach(component => {
 		component.triggers = 0;
 	});
-	components.forEach(component => {
-		component.compute();
-	});
+	if (hovering?.type == 'BUTTON') {
+		hovering.compute();
+	}
 }
 
 function isPowered(x, y) {
@@ -437,8 +460,8 @@ function mousemove(e) {
 	}
 	if (dragging) {
 		if (dragging.is() == 'WIRE') {
-			let dx = dragging.x - dragging.x2;
-			let dy = dragging.y - dragging.y2;
+			let dx = dragging.x2 - dragging.x;
+			let dy = dragging.y2 - dragging.y;
 			dragging.x = Math.round(((mouse.x - dx / 2) - scale / 2) / (scale / 2)) * (scale / 2);
 			dragging.y = Math.round(((mouse.y - dy / 2) - scale / 2) / (scale / 2)) * (scale / 2);
 			dragging.x2 = dragging.x + dx;
